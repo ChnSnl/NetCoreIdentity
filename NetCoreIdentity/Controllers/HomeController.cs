@@ -1,9 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using NetCoreIdentity.Models;
 using NetCoreIdentity.Models.Entities;
 using NetCoreIdentity.Models.ViewModels.AppUsers.PureVms;
 using System.Diagnostics;
+using SignInResult = Microsoft.AspNetCore.Identity.SignInResult;
 
 namespace NetCoreIdentity.Controllers
 {
@@ -81,10 +83,98 @@ namespace NetCoreIdentity.Controllers
             return View(model);
         }
 
-        public IActionResult SignIn()
+        public IActionResult SignIn(string returnUrl)
+        {
+            UserSignInRequestModel usModel = new()
+            {
+                ReturnUrl = returnUrl
+            };
+
+            return View(usModel);
+        }
+
+        [HttpPost]
+
+        public async Task<IActionResult> SignIn(UserSignInRequestModel model)
+        {
+            if (ModelState.IsValid)
+            {
+                AppUser appUser = await _userManager.FindByNameAsync(model.UserName);
+                SignInResult result = await _signInManager.PasswordSignInAsync(appUser, model.Password, model.RememberMe, true);
+
+                if (result.Succeeded)
+                {
+                    if (!string.IsNullOrWhiteSpace(model.ReturnUrl))
+                    {
+                        return Redirect(model.ReturnUrl);
+                    }
+
+                    IList<string> roles = await _userManager.GetRolesAsync(appUser);
+
+                    if (roles.Contains("Admin"))
+                    {
+                        return RedirectToAction("AdminPanel");
+                    }
+                    else if (roles.Contains("Member"))
+                    {
+                        return RedirectToAction("MemberPanel");
+                    }
+
+                    return RedirectToAction("Panel");
+                }
+
+                else if (result.IsLockedOut)
+                {
+                    DateTimeOffset? lockOutEndDate = await _userManager.GetLockoutEndDateAsync(appUser);
+
+                    ModelState.AddModelError("", $"Hesabýnýz {(lockOutEndDate.Value.UtcDateTime - DateTime.UtcNow).Minutes} dakika süreyle askýya alýnmýþtýr.");
+                }
+                else
+                {
+                    string message = "";
+                    if (appUser != null)
+                    {
+                        int maxFailedAttempts = _userManager.Options.Lockout.MaxFailedAccessAttempts;
+                        message = $"Eðer {maxFailedAttempts - await _userManager.GetAccessFailedCountAsync(appUser)} kez daha hatalý giriþ yaparsanýz hesabýnýz askýya alýnacaktýr.";
+                    }
+                    else
+                    {
+                        message = "Kullanýcý bulunamadý";
+                    }
+                    ModelState.AddModelError("", message);
+                }
+            }
+            return View(model);
+        }
+
+        public IActionResult AccessDenied()
+        {
+            return View();
+        }
+
+        public async Task<IActionResult> SignOut()
+        {
+            await _signInManager.SignOutAsync();
+            return View("Index");
+        }
+
+        [Authorize(Roles = "Admin")]
+        public IActionResult AdminPanel()
+        {
+            return View();
+        }
+
+        [Authorize(Roles = "Member")]
+        public IActionResult MemberPanel()
+        {
+            return View();
+        }
+
+        public IActionResult Panel()
         {
             return View();
         }
 
     }
+
 }
